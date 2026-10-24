@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import json
-import uuid
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from recon.core.errors import ConflictError, ErrorCode, InvalidPayloadError
 from recon.core.logging import get_logger
+from recon.core.money import Money
 from recon.db.models import Discrepancy, Payment, WebhookEvent
 from recon.repositories.payments import DiscrepancyRepository, PaymentRepository
 from recon.repositories.webhook_events import WebhookEventRepository
-from recon.schemas.common import DiscrepancyStatus, PaymentStatus, WebhookEventStatus
+from recon.schemas.common import Currency, DiscrepancyStatus, PaymentStatus, WebhookEventStatus
 from recon.schemas.webhook import InboundWebhookPayload
 from recon.services.signature import SignatureVerifier
 
@@ -53,6 +55,7 @@ class WebhookIngestionService:
 
         event_id = parsed_payload.event_id
         idempotency_key = parsed_payload.idempotency_key
+        event_type = payload_dict.get("event_type", "payment.succeeded")
 
         # 3. Check for duplicates / replay attacks via WebhookEvent ledger
         existing_events = self._event_repo.find_existing(provider, event_id, idempotency_key)
@@ -80,11 +83,23 @@ class WebhookIngestionService:
                 code=ErrorCode.IDEMPOTENCY_COLLISION,
             )
 
-        # 4. Record new WebhookEvent
+        # Convert amount into integer minor units using Money value object
+        currency_enum = Currency(parsed_payload.currency)
+        money_obj = Money.of(parsed_payload.amount, currency_enum)
+        amount_minor = money_obj.to_minor_units()
+        now_utc = datetime.now(timezone.utc)
+
+        # 4. Record new WebhookEvent (providing occurred_at, payment_status, event_type)
         webhook_event = WebhookEvent(
+            provider=provider,
             event_id=event_id,
             idempotency_key=idempotency_key,
-            provider=provider,
+            event_type=event_type,
+            provider_payment_id=parsed_payload.payment_reference,
+            amount_minor=amount_minor,
+            currency=currency_enum,
+            payment_status=PaymentStatus.SUCCEEDED,
+            occurred_at=parsed_payload.timestamp or now_utc,
             payload=payload_dict,
             status=WebhookEventStatus.PROCESSED,
         )
@@ -94,11 +109,9 @@ class WebhookIngestionService:
         payment = Payment(
             provider=provider,
             provider_payment_id=parsed_payload.payment_reference,
-            amount=parsed_payload.amount,
-            currency=parsed_payload.currency,
-            status=PaymentStatus.SETTLED,
-            source_account=parsed_payload.source_account,
-            destination_account=parsed_payload.destination_account,
+            amount_minor=amount_minor,
+            currency=currency_enum,
+            status=PaymentStatus.SUCCEEDED,
         )
         stored_payment, payment_created = self._payment_repo.add_if_absent(payment)
 
@@ -108,8 +121,6 @@ class WebhookIngestionService:
             discrepancy = Discrepancy(
                 payment_id=stored_payment.id,
                 fingerprint=fingerprint,
-                code="DUPLICATE_PAYMENT_REF",
-                description=f"Payment ref {parsed_payload.payment_reference} already exists",
                 status=DiscrepancyStatus.OPEN,
             )
             self._discrepancy_repo.add_if_absent(discrepancy)

@@ -31,6 +31,16 @@ class Settings(BaseSettings):
     webhook_timestamp_tolerance_seconds: int = Field(default=300, gt=0)
     provider_api_key: SecretStr | None = None
 
+    webhook_signing_secret: str = "whsec_test_secret_for_local_and_ci_32chars"
+
+    @property
+    def WEBHOOK_SECRET(self) -> str:
+        return self.webhook_signing_secret
+
+    @property
+    def WEBHOOK_TOLERANCE_SECONDS(self) -> int:
+        return getattr(self, "webhook_timestamp_tolerance_seconds", 300)
+
     @field_validator("log_level", mode="before")
     @classmethod
     def _normalise_log_level(cls, value: object) -> object:

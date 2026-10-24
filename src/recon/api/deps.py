@@ -14,7 +14,6 @@ from recon.repositories.webhook_events import WebhookEventRepository
 from recon.services.signature import SignatureVerifier
 from recon.services.webhook_ingestion import WebhookIngestionService
 
-
 def get_signature_verifier() -> SignatureVerifier:
     settings = get_settings()
     return SignatureVerifier(
