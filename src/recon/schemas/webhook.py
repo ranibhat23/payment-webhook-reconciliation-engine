@@ -1,74 +1,33 @@
-"""Ingestion schemas for incoming payment webhooks.
-
-`PaymentWebhookIn` is the *normalised* shape. Provider adapters (src/recon/providers/)
-translate each provider's native payload into this before it reaches the service layer.
-"""
+"""Pydantic schemas for inbound webhook event payloads."""
 
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal, Self
+from typing import Any, Optional
 
-from pydantic import (
-    AwareDatetime,
-    BaseModel,
-    ConfigDict,
-    Field,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, Field, field_validator
 
-from recon.core.money import Money
-from recon.schemas.common import Currency, PaymentStatus
+from recon.schemas.common import CurrencyEnum
 
 
-class PaymentWebhookIn(BaseModel):
-    model_config = ConfigDict(
-        extra="ignore",  # providers add fields; the raw body is stored separately
-        str_strip_whitespace=True,
-        frozen=True,
-    )
+class InboundWebhookPayload(BaseModel):
+    event_id: str = Field(..., description="Unique event identifier from the provider")
+    idempotency_key: str = Field(..., min_length=8, description="Client idempotency key")
+    payment_reference: str = Field(..., description="Business reference for the payment")
+    amount: Decimal = Field(..., gt=0, description="Transaction amount, strictly greater than 0")
+    currency: str = Field(..., description="Currency code (AUD, EUR, USD, GBP)")
+    source_account: Optional[str] = None
+    destination_account: Optional[str] = None
+    timestamp: Optional[datetime] = None
+    metadata: Optional[dict[str, Any]] = None
 
-    provider: str = Field(min_length=1, max_length=50)
-    event_id: str = Field(min_length=1, max_length=255)
-    idempotency_key: str = Field(min_length=1, max_length=255)
-    event_type: str = Field(min_length=1, max_length=100)
-    payment_id: str = Field(min_length=1, max_length=255, description="Provider's payment reference")
-    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
-    currency: Currency
-    status: PaymentStatus
-    timestamp: AwareDatetime  # timezone required; naive datetimes are rejected
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("provider")
+    @field_validator("currency")
     @classmethod
-    def _lowercase_provider(cls, value: str) -> str:
-        return value.lower()
-
-    @field_validator("timestamp")
-    @classmethod
-    def _to_utc(cls, value: AwareDatetime) -> AwareDatetime:
-        return value.astimezone(timezone.utc)
-
-    @model_validator(mode="after")
-    def _amount_fits_currency(self) -> Self:
-        # Re-checks precision against the specific currency's exponent via Money, so adding
-        # a zero-decimal currency later (e.g. JPY) can't let 10.50 JPY through.
-        try:
-            Money(self.amount, self.currency)
-        except ValueError as exc:
-            raise ValueError(str(exc)) from exc
-        return self
-
-    @property
-    def money(self) -> Money:
-        return Money(self.amount, self.currency)
-
-
-class WebhookAck(BaseModel):
-    """Response body returned to the provider after we accept (or de-duplicate) an event."""
-
-    event_id: str
-    status: Literal["accepted", "duplicate"]
-    received_at: AwareDatetime
+    def validate_currency(cls, v: str) -> str:
+        code = v.upper()
+        # Verify currency against standard supported codes
+        allowed = {c.value for c in CurrencyEnum} if hasattr(CurrencyEnum, "__iter__") else {"AUD", "EUR", "USD", "GBP"}
+        if code not in allowed:
+            raise ValueError(f"Currency '{v}' is not supported. Must be one of {allowed}")
+        return code

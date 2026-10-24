@@ -1,54 +1,50 @@
-"""Shared enums and base schema classes.
+"""Common enums and schemas for the reconciliation service."""
 
-This module is deliberately a *leaf*: it imports nothing from the rest of `recon`, so
-`core`, `db` and `schemas` can all depend on it without creating import cycles.
-"""
+from __future__ import annotations
 
-from enum import StrEnum
-
-from pydantic import BaseModel, ConfigDict
+from enum import Enum
 
 
-class Currency(StrEnum):
+class Currency(str, Enum):
     AUD = "AUD"
     EUR = "EUR"
     USD = "USD"
     GBP = "GBP"
 
 
-class PaymentStatus(StrEnum):
-    PENDING = "pending"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    REFUNDED = "refunded"
+# Alias CurrencyEnum to Currency so both import conventions work seamlessly
+CurrencyEnum = Currency
 
 
-class WebhookEventStatus(StrEnum):
-    RECEIVED = "received"
-    PROCESSING = "processing"
-    PROCESSED = "processed"
-    FAILED = "failed"
+class WebhookEventStatus(str, Enum):
+    RECEIVED = "RECEIVED"
+    PROCESSED = "PROCESSED"
+    FAILED = "FAILED"
 
 
-class DiscrepancyType(StrEnum):
-    MISSING_PAYMENT = "missing_payment"  # webhook references a payment we don't have
-    MISSING_WEBHOOK = "missing_webhook"  # payment exists but no webhook ever arrived
-    AMOUNT_MISMATCH = "amount_mismatch"
-    CURRENCY_MISMATCH = "currency_mismatch"
-    STATUS_MISMATCH = "status_mismatch"
-    INVALID_TRANSITION = "invalid_transition"  # e.g. FAILED -> SUCCEEDED
-    DUPLICATE_EVENT = "duplicate_event"
+class PaymentStatus(str, Enum):
+    PENDING = "PENDING"
+    SUCCEEDED = "SUCCEEDED"
+    SETTLED = "SETTLED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+    REFUNDED = "REFUNDED"
+    PARTIALLY_REFUNDED = "PARTIALLY_REFUNDED"
+    DISPUTED = "DISPUTED"
+    REJECTED = "REJECTED"
 
 
-class DiscrepancyStatus(StrEnum):
-    OPEN = "open"
-    ACKNOWLEDGED = "acknowledged"
-    RESOLVED = "resolved"
-    IGNORED = "ignored"
+class DiscrepancyStatus(str, Enum):
+    OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+    IGNORED = "IGNORED"
 
 
-class ORMSchema(BaseModel):
-    """Base for response schemas that are built straight from ORM objects."""
-
-    model_config = ConfigDict(from_attributes=True)
+class DiscrepancyType(str, Enum):
+    AMOUNT_MISMATCH = "AMOUNT_MISMATCH"
+    CURRENCY_MISMATCH = "CURRENCY_MISMATCH"
+    STATUS_MISMATCH = "STATUS_MISMATCH"
+    DUPLICATE_PAYMENT_REF = "DUPLICATE_PAYMENT_REF"
+    MISSING_RECORD = "MISSING_RECORD"
+    TIMING_MISMATCH = "TIMING_MISMATCH"
+    OTHER = "OTHER"
